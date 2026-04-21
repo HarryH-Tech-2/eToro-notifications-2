@@ -8,10 +8,12 @@ from diff import Post
 
 logger = logging.getLogger(__name__)
 
-# Selectors discovered via scripts/explore_selectors.py on 2026-04-20.
+# Selectors discovered by dumping the rendered profile page on 2026-04-20.
+# eToro uses Angular with `automation-id` attrs (note: NOT `data-etoro-automation-id`).
+# Post links live inside <a automation-id="pinned-posts-post" href="/posts/<uuid>">.
+# Post IDs are UUIDs like "42a3c620-f073-11f0-8080-800007975dfe".
 # If eToro changes their DOM these WILL need updating.
-FEED_CONTAINER_SELECTOR = '[data-etoro-automation-id="feed-item-container"]'
-POST_LINK_SELECTOR = 'a[href*="/posts/"]'
+POST_LINK_SELECTOR = 'a[automation-id="pinned-posts-post"]'
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -22,7 +24,9 @@ USER_AGENT = (
 PAGE_TIMEOUT_MS = 45_000
 SELECTOR_TIMEOUT_MS = 30_000
 
-POST_ID_RE = re.compile(r"/posts/([^/?#]+)")
+# eToro post IDs are UUIDs (e.g. 42a3c620-f073-11f0-8080-800007975dfe).
+# We require the UUID-like shape to filter out config/query-string noise.
+POST_ID_RE = re.compile(r"/posts/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 
 
 def _extract_post_id(href: str) -> str | None:
@@ -42,9 +46,9 @@ def fetch_posts(profile_url: str) -> list[Post]:
         try:
             page.goto(profile_url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
             try:
-                page.wait_for_selector(FEED_CONTAINER_SELECTOR, timeout=SELECTOR_TIMEOUT_MS)
+                page.wait_for_selector(POST_LINK_SELECTOR, timeout=SELECTOR_TIMEOUT_MS)
             except PWTimeout:
-                logger.warning("Feed selector not found within timeout - profile may have no posts or DOM changed")
+                logger.warning("No post links found within timeout - profile may have no posts or DOM changed")
                 return []
 
             # Give the feed a moment to settle after first items render.

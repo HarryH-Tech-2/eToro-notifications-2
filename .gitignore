@@ -6,3 +6,4 @@ venv/
 .pytest_cache/
 .env
 .playwright/
+page_dump*.html
