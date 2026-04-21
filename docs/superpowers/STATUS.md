@@ -17,7 +17,7 @@
 | 8 | Deploy (user action) | ⏳ Pending — see below |
 
 Tests: `pytest -v` → 14 passed.
-Local E2E dry-run verified: first run seeds `state/seen.json` with 13 IDs and sends no messages; second run reports `No new posts (13 current, 13 seen)`.
+Local E2E dry-run verified across all 5 profiles: first run seeds `state/seen-<username>.json` for each (13 + 10 + 13 + 3 + 10 posts), no WhatsApp calls, exit 0.
 
 ## What works
 
@@ -25,7 +25,7 @@ Local E2E dry-run verified: first run seeds `state/seen.json` with 13 IDs and se
 - `state.py` — JSON load/save with graceful handling of missing/malformed files, 7 tests.
 - `whatsapp.py` — thin CallMeBot HTTP client.
 - `etoro_scraper.py` — returns **13 posts** from the tracked profile (3 pinned + 10 from the virtualised Discussions feed), newest first, with absolute timestamps on feed posts.
-- `check_etoro.py` — first-run seed, diff-and-notify, flood cap, state persistence. Scrape failures return exit 1 without touching state.
+- `check_etoro.py` — iterates over `PROFILE_URLS` (5 profiles: `harryh1993`, `jaynemesis`, `michalhla`, `JeppeKirkBonde`, `CPHequities`). Per-profile state file `state/seen-<username>.json`. Per-profile first-run seed, diff-and-notify, flood cap. Notification format: `@<username> posted: <url>`. Failure on one profile is logged and skipped; exit 1 only if every profile fails.
 - `.github/workflows/check.yml` — `*/15 * * * *` cron, installs Playwright+Chromium, runs the checker, commits `state/` back with `[skip ci]`.
 
 ## Scraper selectors (future drift reference)
