@@ -1,7 +1,7 @@
 # Project Status
 
-**Last updated:** 2026-04-20
-**Paused at:** Task 5 — blocked on a product decision (see below).
+**Last updated:** 2026-04-21
+**State:** Tasks 1–7 complete. Task 8 (user deployment) is the only thing left.
 
 ## Progress vs plan
 
@@ -11,81 +11,62 @@
 | 2 | diff.py with TDD | ✅ Done | `d28c174 feat: add pure diff and trim logic with tests` |
 | 3 | state.py with TDD | ✅ Done | `484dcfe feat: add state load/save with trim and graceful error handling` |
 | 4 | whatsapp.py CallMeBot client | ✅ Done | `af4b531 feat: add CallMeBot WhatsApp client` |
-| 5 | Playwright scraper | 🟡 Partial | `e5d2180` scaffold + `f17ae59` selector fix |
-| 6 | Main orchestrator | ⏳ Pending | |
-| 7 | GitHub Actions workflow | ⏳ Pending | |
-| 8 | Deploy (user action) | ⏳ Pending | |
+| 5 | Playwright scraper | ✅ Done | `e5d2180` scaffold + `f17ae59` selector fix + (this session) virtual-scroll + feed selector |
+| 6 | Main orchestrator | ✅ Done | this session |
+| 7 | GitHub Actions workflow | ✅ Done | this session |
+| 8 | Deploy (user action) | ⏳ Pending — see below |
 
-All tests pass: `pytest -v` → 14 passed.
+Tests: `pytest -v` → 14 passed.
+Local E2E dry-run verified: first run seeds `state/seen.json` with 13 IDs and sends no messages; second run reports `No new posts (13 current, 13 seen)`.
 
 ## What works
 
-- `diff.py` — pure new-posts / trim-to-200 logic, 7 passing tests
-- `state.py` — JSON load/save with graceful handling of missing/malformed files, 7 passing tests
-- `whatsapp.py` — thin CallMeBot HTTP client
-- `etoro_scraper.py` — real-world smoke test returns **3 posts** from the tracked profile:
-  ```
-  42a3c620-f073-11f0-8080-800007975dfe
-  97bc8100-7c1b-11f0-8080-800009e4a64f
-  57798700-ad82-11ee-8080-800016a5337a
-  ```
+- `diff.py` — pure new-posts / trim-to-200 logic, 7 tests.
+- `state.py` — JSON load/save with graceful handling of missing/malformed files, 7 tests.
+- `whatsapp.py` — thin CallMeBot HTTP client.
+- `etoro_scraper.py` — returns **13 posts** from the tracked profile (3 pinned + 10 from the virtualised Discussions feed), newest first, with absolute timestamps on feed posts.
+- `check_etoro.py` — first-run seed, diff-and-notify, flood cap, state persistence. Scrape failures return exit 1 without touching state.
+- `.github/workflows/check.yml` — `*/15 * * * *` cron, installs Playwright+Chromium, runs the checker, commits `state/` back with `[skip ci]`.
 
-## The blocker
+## Scraper selectors (future drift reference)
 
-**eToro's public profile page shows only pinned posts to non-logged-in viewers.** The general feed requires authentication.
+- eToro uses Angular with `automation-id="..."` (NOT `data-etoro-automation-id`).
+- Pinned: `a[automation-id="pinned-posts-post"]` (rendered immediately).
+- Feed:   `a[automation-id="feed-timestamp-link"]` (virtualised, needs scroll).
+- Absolute timestamp: enclosing `[automation-id="feed-timestamp-label"]` element's `title` attr, format `DD/MM/YYYY HH:MM:SS`.
+- Post permalinks: `/posts/<UUID v1>`.
+- `scripts/dump_page.py` / `scripts/dump_after_scroll.py` / `scripts/explore_selectors.py` — diagnostics.
 
-Evidence:
-- `/people/harryh1993` renders only the "Pinned posts" section (3 posts, all with `automation-id="pinned-posts-post"`).
-- `/people/harryh1993/feed` redirects back to the overview (pinned-only).
-- `/people/harryh1993/posts`, `/activity`, `/news` all redirect to `/login`.
+## Task 8 — user deployment
 
-So the current scraper sees **pinned posts only**.
+Remaining actions are all on the user:
 
-## Decision pending from user
-
-Three options presented:
-
-- **A) Ship with "pinned posts only"** — quickest; user would need to pin posts to trigger notifications. Unusual UX.
-- **B) Add eToro login** — credentials as GitHub secrets, scraper logs in first. More powerful, but CAPTCHA / 2FA / ToS / lockout risks.
-- **C) Track a different signal (e.g. trades)** — changes scope from the original "text posts" requirement.
-
-Recommendation given: **A now, B later if needed**.
-
-## What's needed to finish
-
-Whichever option is chosen, the remaining work is:
-- **Task 5 finish:** (possibly) update selectors / add login step to `etoro_scraper.py`.
-- **Task 6:** `check_etoro.py` (wiring — already fully spec'd in the plan).
-- **Task 7:** `.github/workflows/check.yml` (already fully spec'd in the plan).
-- **Task 8:** User deployment (public repo, add secrets, push, trigger first run, verify WhatsApp delivery E2E).
-
-## Selector notes (future drift reference)
-
-- eToro uses Angular with `automation-id="..."` attrs — NOT the `data-etoro-automation-id` pattern the plan assumed.
-- Post permalinks are UUID v1: `/posts/<8-4-4-4-12 hex>`.
-- `scripts/dump_page.py` is a diagnostic helper — dumps rendered HTML to inspect when selectors break.
-- `scripts/explore_selectors.py` launches a headed browser for interactive inspection.
+1. Create a **public** GitHub repo (public = unlimited free Actions minutes).
+2. Add repo secrets:
+   - `CALLMEBOT_PHONE` (e.g. `+447700900000`)
+   - `CALLMEBOT_APIKEY` (from CallMeBot onboarding)
+3. Add remote and push: `git remote add origin …` → `git push -u origin main`.
+4. Trigger the first run: **Actions → Check eToro → Run workflow**. Expect the seed path and a follow-up `chore: update seen state [skip ci]` commit on `main`. **No WhatsApp message** on first run.
+5. E2E verify: publish a new post on the tracked profile, wait ≤15 min for the next cron tick, expect WhatsApp delivery and the new ID appearing in `state/seen.json`.
 
 ## Files on disk
 
 ```
 etoro-notifcations/
-├── .github/                        (empty — Task 7 creates workflow here)
+├── .github/workflows/check.yml     ✓
 ├── .gitignore
 ├── README.md
-├── check_etoro.py                  (missing — Task 6)
+├── check_etoro.py                  ✓
 ├── diff.py                         ✓
-├── docs/
-│   └── superpowers/
-│       ├── STATUS.md               ← this file
-│       ├── plans/
-│       │   └── 2026-04-20-etoro-whatsapp-notifier.md
-│       └── specs/
-│           └── 2026-04-20-etoro-whatsapp-notifier-design.md
-├── etoro_scraper.py                ✓ (pinned-posts only)
+├── docs/superpowers/
+│   ├── STATUS.md                   ← this file
+│   ├── plans/2026-04-20-etoro-whatsapp-notifier.md
+│   └── specs/2026-04-20-etoro-whatsapp-notifier-design.md
+├── etoro_scraper.py                ✓ (pinned + feed, virtual-scroll aware)
 ├── requirements.txt
 ├── scripts/
 │   ├── dump_page.py                (diagnostic)
+│   ├── dump_after_scroll.py        (diagnostic — scrolls before dumping)
 │   └── explore_selectors.py        (diagnostic)
 ├── state.py                        ✓
 ├── tests/
@@ -94,11 +75,3 @@ etoro-notifcations/
 │   └── test_state.py               ✓
 └── whatsapp.py                     ✓
 ```
-
-## How to resume
-
-1. Read this file + the plan at `docs/superpowers/plans/2026-04-20-etoro-whatsapp-notifier.md`.
-2. Ask the user which option (A/B/C) to proceed with.
-3. If A: proceed directly to Task 6.
-4. If B: design the login step, update Task 5 spec, then Task 6.
-5. If C: brainstorm the new signal first.
