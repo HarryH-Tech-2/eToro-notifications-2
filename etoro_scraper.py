@@ -122,3 +122,72 @@ def fetch_posts(profile_url: str) -> list[Post]:
             return posts
         finally:
             browser.close()
+
+
+# Heuristic selectors for the post-detail page body. eToro post pages weren't
+# inspected as carefully as the profile page, so we try several common
+# automation-id patterns and fall back to the longest text block in main
+# content. fetch_post_text is best-effort and returns None on any failure.
+POST_BODY_SELECTORS = [
+    '[automation-id="post-content"]',
+    '[automation-id="post-text"]',
+    '[automation-id="feed-item-text"]',
+    '[automation-id="news-feed-item-content"]',
+    'div.feed-item-body',
+    'article',
+]
+POST_PAGE_TIMEOUT_MS = 30_000
+POST_BODY_WAIT_MS = 4_000
+MIN_BODY_CHARS = 20
+
+
+def fetch_post_text(post_url: str) -> str | None:
+    """Best-effort fetch of the body text of a single eToro post page.
+
+    Returns the post text, or None if extraction fails. Never raises - the
+    caller (notifier) treats absence of text as a soft failure and still
+    sends the notification without an LLM-suggested reply.
+    """
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                ctx = browser.new_context(
+                    user_agent=USER_AGENT,
+                    viewport={"width": 1280, "height": 900},
+                )
+                page = ctx.new_page()
+                page.goto(post_url, wait_until="domcontentloaded", timeout=POST_PAGE_TIMEOUT_MS)
+                # Give Angular a moment to render the post body.
+                page.wait_for_timeout(POST_BODY_WAIT_MS)
+
+                for selector in POST_BODY_SELECTORS:
+                    el = page.query_selector(selector)
+                    if not el:
+                        continue
+                    text = (el.inner_text() or "").strip()
+                    if len(text) >= MIN_BODY_CHARS:
+                        logger.info("Post text via %s (%d chars)", selector, len(text))
+                        return text
+
+                # Fallback: longest <p>/<div> text block on the page.
+                candidates = page.evaluate(
+                    """() => {
+                        const nodes = Array.from(document.querySelectorAll('p, div'));
+                        return nodes
+                            .map(n => (n.innerText || '').trim())
+                            .filter(t => t.length >= 40 && t.length <= 4000);
+                    }"""
+                )
+                if candidates:
+                    longest = max(candidates, key=len)
+                    logger.info("Post text via fallback (%d chars)", len(longest))
+                    return longest
+
+                logger.warning("Could not extract post text from %s", post_url)
+                return None
+            finally:
+                browser.close()
+    except Exception as e:  # noqa: BLE001 - best-effort; never block the notifier
+        logger.warning("fetch_post_text failed for %s: %s", post_url, e)
+        return None
